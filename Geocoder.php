@@ -16,12 +16,12 @@ class Geocoder {
    * Set your api key to this ivar property
    * -- this keeps this class flexible
    */
-  public $apiKey = null;
+  public $key = null;
 
   /*
    * Default endpoint for geocoding API calls
    */
-  public $host = 'https://maps.googleapis.com/maps/api/geocode';
+  public $endpoint = 'https://maps.googleapis.com/maps/api/geocode';
 
   /*
    * Default return format
@@ -41,38 +41,98 @@ class Geocoder {
     'lng' => null
   );
 
+  function __construct($key=self::API_KEY) {
+    $this->key = $key;
+    $this->curl = curl_init();
+  }
+
+  public function location($address, $options = array()) {
+    $this->setOptions($options);
+    $this->location = $this->request($address, $this->json_decode);
+    $this->addressComponents();
+    $this->formattedAddress();
+    $this->coordinate();
+    return $this->location;
+  }
+
   /**
-   * Gets a geocoding result from Google Maps API, sets the response to $response property
+   * Gets a coordinate result from Google Maps API, sets the response to $response property
    * Sets lat/lng coordinate pair to $coordinate property
    * @param  string $address  The input for this method, address you want to get geocode data for
-   * @param  string $key      Override for api key if not set to instance
+   * @param  string $options  An associative array of options. Keys and values are set as object properties.
    * @return array  $response JSON decoded response of geocoded data
    */
-  public function geocode($address, $key=self::API_KEY) {
-    if ($this->apiKey) {
-      $key = $this->apiKey;
+  public function coordinate($address = null, $options = array()) {
+    $this->setOptions($options);
+    if ($address) {
+      $this->location = $this->location($address);
+    }
+    $this->coordinate = $this->location['results'][0]['geometry']['location'];
+    return $this->coordinate;
+  }
+
+  public function addressComponents($address = null, $options = array()) {
+    $this->setOptions($options);
+    if (!in_array($this->length, array('long_name','short_name'))) {
+      throw new Exception("The length parameter must be one of 'long_name','short_name'", 1);
     }
 
-    if ($this->host) {
-      $host = $this->host;
+    if ($address) {
+      $this->location = $this->location($address);
     }
 
-    if (!$key) {
-      throw new Exception("Add your Google Maps API key to the source to use this function without passing it as a parameter, or else set it to the apiKey property of your Geocode instance.");
+    try {
+      $acs = $this->location['results'][0]['address_components'];
+      $this->address_components = array();
+      foreach ($acs as $loc) {
+        $this->address_components[$loc['types'][0]] = $loc[$this->length];
+      }
+      return $this->address_components;
+    } catch (Exception $e) {
+      echo $e->getMessage();
+    }
+  }
+
+  public function formattedAddress($address = null, $options = array()) {
+    if ($address) {
+      $this->location = $this->location($address);
+    }
+    $this->formatted_address = $this->location['results'][0]['formatted_address'];
+    return $this->formatted_address;
+  }
+
+/**
+ * Accepts an array of options and sets the key of each as a property of this object
+ * and the value of each to its key.
+ * @param array $options
+ * @return void
+ */
+  private function setOptions($options = array()) {
+    $defaults = array(
+      'json_decode' => true,
+      'length' => 'short_name'
+    );
+    $options = array_merge($defaults, $options);
+    if (!empty($options)) {
+      foreach ($options as $k => $v) {
+        $this->{$k} = $v;
+      }
+    }
+    return;
+  }
+
+  private function request($address, $json_decode = false) {
+    $request = $this->endpoint.'/'.$this->format.'?address='.$address.'&key='.$this->key;
+    curl_setopt($this->curl, CURLOPT_URL, $request);
+    curl_setopt($this->curl, CURLOPT_RETURNTRANSFER, 1);
+    $response = curl_exec($this->curl);
+    $response = (!$json_decode) ? $response : json_decode($response, true);
+    if (curl_errno($this->curl)) {
+      return curl_error($this->curl);
+    } else {
+      return $response;
     }
 
-    $address = urlencode($address);
-    $request = "https://maps.googleapis.com/maps/api/geocode/json?address=".$address."&key=".$key;
-
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $request);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-    $response = json_decode(curl_exec($ch), true);
-
-    $this->response = $response;
-    $this->coordinate = $this->response['results'][0]['geometry']['location'];
-
-    return $response;
   }
 
 }
